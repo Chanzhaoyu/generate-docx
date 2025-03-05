@@ -43,7 +43,7 @@ export async function createDoc(option: CreateDocOptions): Promise<void> {
 
     const data = { ...form, ...images };
 
-    let docBlob = await generateDocxFile(templateBlob, data, imageSize);
+    const docBlob = await generateDocxFile(templateBlob, data, imageSize);
 
     if (!docBlob) return;
 

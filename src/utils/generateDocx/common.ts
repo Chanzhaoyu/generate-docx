@@ -1,7 +1,10 @@
 // @ts-ignore
 import ImageModule from "docxtemplater-image-module-free";
+
 import PizZip from "pizzip";
 import DocxTemplater from "docxtemplater";
+
+const BASE64_REGEX = /^data:image\/(png|jpg|jpeg|svg|svg\+xml);base64,/;
 
 function getFileBinaryString(
   templateFile: string | File | Blob
@@ -30,19 +33,33 @@ function getFileBinaryString(
 }
 
 function base64DataURLToArrayBuffer(dataURL: string) {
-  const base64Regex = /^data:image\/(png|jpg|jpeg|svg|svg\+xml);base64,/;
-  if (!base64Regex.test(dataURL)) {
+  if (!BASE64_REGEX.test(dataURL)) {
     return false;
   }
-  const stringBase64 = dataURL.replace(base64Regex, "");
+  const stringBase64 = dataURL.replace(BASE64_REGEX, "");
   const binaryString = window.atob(stringBase64);
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    const ascii = binaryString.charCodeAt(i);
-    bytes[i] = ascii;
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+async function processImage(tagValue: string): Promise<ArrayBuffer | false> {
+  // 处理 base64 格式的图片
+  if (typeof tagValue === "string" && tagValue.startsWith("data:image/")) {
+    return base64DataURLToArrayBuffer(tagValue);
+  }
+
+  // 处理 URL 格式的图片
+  if (
+    typeof tagValue === "string" &&
+    (tagValue.startsWith("http://") || tagValue.startsWith("https://"))
+  ) {
+    return fetchImageAsArrayBuffer(tagValue);
+  }
+
+  return false;
 }
 
 async function fetchImageAsArrayBuffer(url: string): Promise<ArrayBuffer> {
@@ -70,26 +87,12 @@ function createImageOpts(imageSize: [number, number] = [200, 200]) {
   return {
     centered: false,
     getImage: async (tagValue: string) => {
-      // 处理 base64 格式的图片
-      if (typeof tagValue === "string" && tagValue.startsWith("data:image/")) {
-        const value = base64DataURLToArrayBuffer(tagValue);
-        if (value) return value;
+      try {
+        return await processImage(tagValue);
+      } catch (error) {
+        console.error("处理图片失败:", error);
+        throw error;
       }
-
-      // 处理 URL 格式的图片
-      if (
-        typeof tagValue === "string" &&
-        (tagValue.startsWith("http://") || tagValue.startsWith("https://"))
-      ) {
-        try {
-          return await fetchImageAsArrayBuffer(tagValue);
-        } catch (error) {
-          console.error("处理图片URL出错:", error);
-          throw error;
-        }
-      }
-
-      return false;
     },
     getSize: () => {
       return imageSize;
@@ -99,32 +102,29 @@ function createImageOpts(imageSize: [number, number] = [200, 200]) {
 
 export async function generateDocxFile(
   template: Blob,
-  fileData: any,
+  fileData: Record<string, unknown>,
   imageSize: [number, number] = [200, 200]
 ): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    getFileBinaryString(template)
-      .then((templateData) => {
-        const zip = new PizZip(templateData);
+  try {
+    const templateData = await getFileBinaryString(template);
+    const zip = new PizZip(templateData);
+    const imageOpts = createImageOpts(imageSize);
 
-        // 使用创建的图片选项配置
-        const imageOpts = createImageOpts(imageSize);
+    const doc = new DocxTemplater()
+      .loadZip(zip)
+      .attachModule(new ImageModule(imageOpts))
+      .compile();
 
-        const doc = new DocxTemplater()
-          .loadZip(zip)
-          .attachModule(new ImageModule(imageOpts))
-          .compile();
+    await doc.resolveData(fileData);
+    doc.render();
 
-        doc.resolveData(fileData).then(() => {
-          doc.render();
-          const out = doc.getZip().generate({
-            type: "blob",
-            mimeType:
-              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          });
-          resolve(out);
-        });
-      })
-      .catch(reject);
-  });
+    return doc.getZip().generate({
+      type: "blob",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+  } catch (error) {
+    console.error("生成Word文档失败:", error);
+    throw error;
+  }
 }

@@ -2,13 +2,30 @@
 
 通过 `docx` 模板插入前端数据 `demo`
 
-[x] 插入数据
+- [x] 插入数据
 
-[x] 插入图片数据
+- [x] 插入图片数据
 
 ## 截图
 
 ![screenshot](./screenshot/image.png)
+
+## 模板示例
+
+`template.docx` 内模板
+
+```
+名称：{name}。
+
+单个图片：
+{%image}
+
+多张图片：
+{#images}
+异常描述: {description}
+{%url}
+{/images}
+```
 
 ## 调用示例
 
